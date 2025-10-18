@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oracle To-Do App</title>
+    <style>
+        body {font-family: Arial, sans-serif;
+              max-width: 600px;
+              margin: 40px auto;      
+        }
+        h1 {text-align: center;}
+        input, button {padding: 10px; margin: 5px}
+        li { display: flex; justify-content: space-between; margin: 8px 0;}
+    </style>
+</head>
+<body>
+    <h1>Oracle To-Do App</h1>
+    <input id="todoInput" placeholder="Enter new task" />
+    <button onclick="addTodo()">Add</button>
+
+    <ul id="todoList"></ul>
+
+    <script>
+        const apiBase = "http://localhost:4000/todos";
+
+        async function loadTodos(){
+            const res = await fetch(apiBase)
+            const todos = await res.json()
+            const list = document.getElementById("todoList");
+            list.innerHTML="";
+            todos.forEach(t => {
+                const li = document.createElement("li");
+                li.innerHTML=`
+                 <span>${t.DESCRIPTION} ${t.DONE? "✅": "❌"}</span> 
+                 <span>
+                    <button onclick="toggleDone(${t.ID}, ${t.DONE ? 0:1})">Toggle </button>
+                </span>
+             `;
+             list.appendChild(li)
+            });
+        }
+        async function addTodo() {
+            const description = document.getElementById("todoInput").value;
+            if(!description) return alert("Enter a task! ");
+            await fetch(apiBase, {
+                method: "POST",
+                headers: { "Content-Type":"application/json"},
+                body: JSON.stringify({ description})
+            });
+            document.getElementById("todoInput").value="";
+            loadTodos();
+        }
+
+        async function toggleDone(id, done) {
+            await fetch(`${apiBase}/${id}`, {
+                method: "PUT",
+                headers: {"Content-Type":"application/json"},
+                body: JSON.stringify({ done })
+            });
+            loadTodos();
+        }
+        async function deleteTodo(id) {
+            await fetch (`${apiBase}/${id}`, {
+                method: "DELETE"});
+            loadTodos();
+        }
+        loadTodos();
+    </script>
+</body>
+</html>
