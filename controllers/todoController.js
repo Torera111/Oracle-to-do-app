@@ -1,46 +1,35 @@
-const express = require("express");
-const path = require("path")
-const cors = require("cors")
-const oracledb = require("oracledb");
+const { getConnection, oracledb } = require('../config/db');
 
-const app = express();
-app.use(cors());
-app.use(express.json()); // 👈 Needed to parse JSON bodies
-app.use(express.static('.')); // Serve index.html if needed
-
-app.use(express.static(path.join(__dirname, 'public')))
-
-const dbConfig ={
-    user: "demonode",
-    password: "1234",
-    connectString: "localhost/FREEPDB1",
-};
 
 //Get all Todos
-app.get("/todos", async (req, res) =>{
+exports.getTodos = async (req, res) =>{
+     console.log("📥 Received request to GET /todos");
     let connection;
     try{
-        connection = await oracledb.getConnection(dbConfig);
-        const result= await connection.execute(
-            "SELECT id, description, done FROM  todoitem  ORDER BY id",
-            [],
-            { outFormat: oracledb.OUT_FORMAT_OBJECT}
+        connection = await getConnection();
+        console.log("✅ Connected to Oracle Database!");
+        const result = await connection.execute(
+            "SELECT id, description, done FROM todoitem ORDER BY id",
+            []
         );
-        res.json(result.rows)
+        res.json(result.rows || [])
     } catch (err){
-        console.error(err);
+        console.error("❌ Error in getTodos:", err.message);
         res.status(500).send("Error fetching todos")
     } finally{
         if (connection)await connection.close();
     }
-})
+};
 
-app.post("/todos", async (req, res) => {
-    console.log("Received body:", req.body);
-    let connection;
+exports.addTodo = async (req, res) => {
     const { description } = req.body;
+     console.log("Received body:", req.body);
+    if (!description) {
+        return res.status(400).send("Description is required");
+    }
+    let connection;
     try{
-        connection = await oracledb.getConnection(dbConfig);
+        connection = await getConnection();
         await connection.execute(
             "INSERT INTO todoitem(description, done) VALUES (:1, 0)",
             [description]
@@ -54,14 +43,15 @@ app.post("/todos", async (req, res) => {
        if (connection) await connection.close();
     }
 
-});
+};
+
 //update todo
-app.put("/todos/:id", async (req, res)=>{
-    let connection;
+exports.updateTodo= async (req, res)=>{
     const { id } = req.params;
     const { done } = req.body;
+    let connection;
     try{
-        connection = await oracledb.getConnection(dbConfig);
+        connection = await getConnection();
                 await connection.execute(
             " UPDATE todoitem SET done = :1 where id = :2",
             [done, id]
@@ -74,14 +64,13 @@ app.put("/todos/:id", async (req, res)=>{
     } finally {
        if (connection)await connection.close();
     }       
-})
+}
 
-//delete todo
-app.delete("/todos/:id", async (req, res)=>{
-    let connection;
+exports.deleteTodo = async (req, res)=>{
     const { id } = req.params;
+    let connection;
     try{
-        connection = await oracledb.getConnection(dbConfig);
+        connection = await getConnection();
                 await connection.execute(
             " DELETE FROM todoitem where id = :1",
             [id]
@@ -94,6 +83,5 @@ app.delete("/todos/:id", async (req, res)=>{
     } finally {
        if (connection)await connection.close();
     }       
-})
-const PORT =4000;
-app.listen(PORT, () => console.log(`Server running on  http://localhost:${PORT}`))
+}
+
