@@ -16,55 +16,194 @@
 </head>
 <body>
     <h1>Oracle To-Do App</h1>
+    <div style="margin-bottom:20px; border:1px solid #ddd; padding:10px;">
+        <h3>Auth</h3>
+        <div>
+            <input id="username" placeholder="username" />
+            <input id="password" placeholder="password" type="password" />
+            <button onclick="register()">Register</button>
+            <button onclick="login()">Login</button>
+            <button onclick="logout()">Logout</button>
+        </div>
+        <div style="margin-top:8px">Token: <span id="tokenDisplay">(none)</span></div>
+        <div id="authMessage" style="color:green; margin-top:6px"></div>
+    </div>
+
+    <div style="margin-bottom:20px; border:1px solid #ddd; padding:10px;">
+        <h3>Todos</h3>
     <input id="todoInput" placeholder="Enter new task" />
     <button onclick="addTodo()">Add</button>
-
+        <button onclick="loadTodos()">Refresh</button>
+    <div id="todoMessage" style="margin-top:6px;color:green"></div>
     <ul id="todoList"></ul>
+    </div>
 
     <script>
         const apiBase = "http://localhost:4000/todos";
+        const authBase = "http://localhost:4000/auth";
+
+        function getToken(){
+            return localStorage.getItem('jwt') || '';
+        }
+        function setToken(t){
+            if(t){
+                localStorage.setItem('jwt', t);
+                document.getElementById('tokenDisplay').textContent = t.slice(0,40) + '...';
+            } else {
+                localStorage.removeItem('jwt');
+                document.getElementById('tokenDisplay').textContent = '(none)';
+            }
+        }
+
+        async function register(){
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            if(!username || !password) { document.getElementById('authMessage').textContent = 'Username and password required'; return; }
+            const res = await fetch(authBase + '/register', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ username, password })
+            });
+            if(res.status === 201) { document.getElementById('authMessage').textContent = 'Registered successfully'; }
+            else if(res.status === 409) { document.getElementById('authMessage').textContent = 'Username already exists'; }
+            else { document.getElementById('authMessage').textContent = 'Register failed: ' + res.status; }
+        }
+
+        async function login(){
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            if(!username || !password) { document.getElementById('authMessage').textContent = 'Username and password required'; return; }
+            const res = await fetch(authBase + '/login', {
+                method: 'POST', headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ username, password })
+            });
+            const j = await res.json();
+            if(j && j.token){ setToken(j.token); document.getElementById('authMessage').textContent = 'Logged in'; }
+            else { document.getElementById('authMessage').textContent = 'Login failed'; }
+        }
+
+        function logout(){ setToken(null); document.getElementById('authMessage').textContent = 'Logged out'; }
 
         async function loadTodos(){
-            const res = await fetch(apiBase)
-            const todos = await res.json()
-            const list = document.getElementById("todoList");
-            list.innerHTML="";
+            const token = getToken();
+            const res = await fetch(apiBase, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+            if(res.status === 401 || res.status === 403){
+                alert('Auth error when loading todos: ' + res.status);
+                return;
+            }
+            const todos = await res.json();
+            const list = document.getElementById('todoList');
+            list.innerHTML = '';
             todos.forEach(t => {
-                const li = document.createElement("li");
-                li.innerHTML=`
-                 <span>${t.DESCRIPTION} ${t.DONE? "✅": "❌"}</span> 
+                const li = document.createElement('li');
+                // checkbox for done and inline label
+                li.innerHTML = `
+                 <span style="flex:1"><input type="checkbox" id="chk_${t.ID}" ${t.DONE? 'checked': ''} /> <label for="chk_${t.ID}">${t.DESCRIPTION}</label></span>
                  <span>
-                    <button onclick="toggleDone(${t.ID}, ${t.DONE ? 0:1})">Toggle </button>
-                </span>
+                    <button onclick="deleteTodo(${t.ID})">Delete</button>
+                 </span>
              `;
-             list.appendChild(li)
+             list.appendChild(li);
+             // attach event handler to checkbox to update inline without full reload
+             const chk = document.getElementById(`chk_${t.ID}`);
+             if(chk){
+                 chk.addEventListener('change', async (e) => {
+                     document.getElementById('todoMessage').textContent = 'Updating...';
+                     const newDone = e.target.checked ? 1 : 0;
+                     const token = getToken();
+                     const res = await fetch(`${apiBase}/${t.ID}`, {
+                         method: 'PUT',
+                         headers: Object.assign({'Content-Type':'application/json'}, token ? { Authorization: 'Bearer ' + token } : {}),
+                         body: JSON.stringify({ done: newDone })
+                     });
+                     if(res.ok){ document.getElementById('todoMessage').textContent = 'Updated'; }
+                     else { document.getElementById('todoMessage').textContent = 'Update failed: ' + res.status; }
+                 });
+             }
             });
         }
+
         async function addTodo() {
-            const description = document.getElementById("todoInput").value;
-            if(!description) return alert("Enter a task! ");
-            await fetch(apiBase, {
-                method: "POST",
-                headers: { "Content-Type":"application/json"},
+            const description = document.getElementById('todoInput').value.trim();
+            if(!description) { document.getElementById('todoMessage').textContent = 'Description required'; return; }
+            document.getElementById('todoMessage').textContent = 'Adding...';
+            const token = getToken();
+            const res = await fetch(apiBase, {
+                method: 'POST',
+                headers: Object.assign({'Content-Type':'application/json'}, token ? { Authorization: 'Bearer ' + token } : {}),
                 body: JSON.stringify({ description})
             });
-            document.getElementById("todoInput").value="";
-            loadTodos();
+            if (res.ok) {
+                // Success. If server returned JSON (201 with created todo), append it.
+                const contentType = res.headers.get('content-type') || '';
+                if (res.status === 201 && contentType.includes('application/json')) {
+                    const created = await res.json();
+                    document.getElementById('todoInput').value = '';
+                    document.getElementById('todoMessage').textContent = 'Added';
+                    appendTodoToList(created);
+                } else {
+                    // Some servers may respond with 200 and a plain message. Refresh list for safety.
+                    document.getElementById('todoInput').value = '';
+                    document.getElementById('todoMessage').textContent = 'Added';
+                    loadTodos();
+                }
+            } else if(res.status === 400){
+                document.getElementById('todoMessage').textContent = 'Description required';
+            } else {
+                document.getElementById('todoMessage').textContent = 'Add failed: ' + res.status;
+            }
+        }
+
+        // helper to append single todo to list and wire checkbox/delete
+        function appendTodoToList(t){
+            const list = document.getElementById('todoList');
+            const li = document.createElement('li');
+            li.innerHTML = `
+                <span style="flex:1"><input type="checkbox" id="chk_${t.ID || t.id}" ${t.DONE? 'checked': ''} /> <label for="chk_${t.ID || t.id}">${t.DESCRIPTION || t.description}</label></span>
+                <span>
+                    <button onclick="deleteTodo(${t.ID || t.id})">Delete</button>
+                </span>
+            `;
+            list.appendChild(li);
+            const id = t.ID || t.id;
+            const chk = document.getElementById(`chk_${id}`);
+            if(chk){
+                chk.addEventListener('change', async (e) => {
+                    document.getElementById('todoMessage').textContent = 'Updating...';
+                    const newDone = e.target.checked ? 1 : 0;
+                    const token = getToken();
+                    const res = await fetch(`${apiBase}/${id}`, {
+                        method: 'PUT',
+                        headers: Object.assign({'Content-Type':'application/json'}, token ? { Authorization: 'Bearer ' + token } : {}),
+                        body: JSON.stringify({ done: newDone })
+                    });
+                    if(res.ok){ document.getElementById('todoMessage').textContent = 'Updated'; }
+                    else { document.getElementById('todoMessage').textContent = 'Update failed: ' + res.status; }
+                });
+            }
         }
 
         async function toggleDone(id, done) {
-            await fetch(`${apiBase}/${id}`, {
-                method: "PUT",
-                headers: {"Content-Type":"application/json"},
+            const token = getToken();
+            const res = await fetch(`${apiBase}/${id}`, {
+                method: 'PUT',
+                headers: Object.assign({'Content-Type':'application/json'}, token ? { Authorization: 'Bearer ' + token } : {}),
                 body: JSON.stringify({ done })
             });
-            loadTodos();
+            if(res.ok) loadTodos(); else alert('Update failed: ' + res.status);
         }
+
         async function deleteTodo(id) {
-            await fetch (`${apiBase}/${id}`, {
-                method: "DELETE"});
-            loadTodos();
+            if(!confirm('Delete todo #' + id + '?')) return;
+            const token = getToken();
+            const res = await fetch(`${apiBase}/${id}`, {
+                method: 'DELETE',
+                headers: token ? { Authorization: 'Bearer ' + token } : {}
+            });
+            if(res.ok) loadTodos(); else alert('Delete failed: ' + res.status);
         }
+
+        // initialize
+        setToken(localStorage.getItem('jwt'));
         loadTodos();
     </script>
 </body>

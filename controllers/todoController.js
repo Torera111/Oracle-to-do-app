@@ -30,12 +30,19 @@ exports.addTodo = async (req, res) => {
     let connection;
     try{
         connection = await getConnection();
-        await connection.execute(
-            "INSERT INTO todoitem(description, done) VALUES (:1, 0)",
-            [description]
+        // Use RETURNING INTO to get the generated id back from Oracle
+        const result = await connection.execute(
+            "INSERT INTO todoitem(description, done) VALUES (:description, 0) RETURNING id INTO :id",
+            {
+                description,
+                id: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER }
+            },
+            { autoCommit: true }
         );
-        await connection.commit();
-        res.send("Todo added successfully")
+
+        const createdId = result.outBinds && result.outBinds.id ? result.outBinds.id[0] || result.outBinds.id : result.outBinds.id;
+        // Return created todo as JSON so front-end can show id without reloading
+        res.status(201).json({ id: createdId, description, done: 0 });
     } catch(err){
         console.error(err);
         res.status(500).send("Error adding todo");
