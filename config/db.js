@@ -14,10 +14,10 @@ const dbConfig = {
 // Create a reusable function to get DB connections
 async function getConnection() {
   try {
-    const connection = await oracledb.getConnection(dbConfig); // ✅ FIXED
+    const connection = await oracledb.getConnection(dbConfig); 
     return connection;
   } catch (err) {
-    console.error("❌ Error getting DB connection:", err);
+    console.error("Error getting DB connection:", err);
     throw err;
   }
 }
