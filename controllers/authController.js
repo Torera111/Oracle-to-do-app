@@ -13,6 +13,23 @@ exports.register = async (req, res) => {
         const saltRounds = parseInt(process.env.SALT_ROUNDS, 10) || 10;
         const hashedPassword = await bcrypt.hash(password, saltRounds);
         connection = await getConnection();
+
+        // Check if username already exists to return 409 without relying on DB exception
+        try {
+            const check = await connection.execute(
+                "SELECT COUNT(*) AS CNT FROM users WHERE username = :1",
+                [username]
+            );
+            const cntRow = check && check.rows && check.rows[0];
+            const count = (cntRow && (cntRow.CNT || cntRow.COUNT || cntRow['COUNT(*)'])) || 0;
+            if (count > 0) {
+                return res.status(409).json({ message: 'Username already exists.' });
+            }
+        } catch (chkErr) {
+            // if check fails, continue to attempt insert and rely on unique constraint handling
+            console.warn('Username existence check failed, proceeding to insert:', chkErr && chkErr.message);
+        }
+
         await connection.execute(
             "INSERT INTO users (username, password_hash) VALUES (:1, :2)",
             [username, hashedPassword]
